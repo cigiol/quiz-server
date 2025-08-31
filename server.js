@@ -32,6 +32,8 @@ io.on("connection", (socket) => {
         console.log(socket.id);
 
         const room = rooms.get(roomId);
+        if (!room) return;
+
         console.log(room, "room");
         const newPlayer = { id: socket.id, name: username, score: 0 };
         room.players.push(newPlayer);
@@ -49,7 +51,10 @@ io.on("connection", (socket) => {
     const sendNextQuestion = (roomId) => {
         const room = rooms.get(roomId) || [];
         if (room.currentQuestion >= room.question.length) {
-            io.to(roomId).emit("gameOver", rooms.get(roomId));
+            const maxScore = Math.max(...room.players.map(p => p.score));
+            const winner = room.players.find(p => p.score === maxScore);
+
+            io.to(roomId).emit("gameOver", winner);
             return;
         }
         room.answeredPlayers = 0;
@@ -62,6 +67,12 @@ io.on("connection", (socket) => {
                 question.correct_answer
             ])
         });
+
+        if (room.questionTimer) clearTimeout(room.questionTimer);
+        room.questionTimer = setTimeout(() => {
+            room.currentQuestion += 1;
+            sendNextQuestion(roomId);
+        }, 10000);
     };
 
     socket.on("startGame", async ({ roomId }) => {
@@ -92,7 +103,9 @@ io.on("connection", (socket) => {
         if (!player) return;
 
         if (isCorrect) {
-            player.score = (player.score || 0) + 1;
+            const correctCount = room.correctAnswersGiven || 0;
+            player.score = correctCount === 0 ? (player.score || 0) + 2 : (player.score || 0) + 1;
+            room.correctAnswersGiven = correctCount + 1;
         }
         io.to(roomId).emit("playerAnswered", {
             id: player.id,
@@ -101,9 +114,20 @@ io.on("connection", (socket) => {
         });
 
         if (room.answeredPlayers === room.players.length) {
-            room.currentQuestion = room.currentQuestion + 1;
+            clearTimeout(room.questionTimer);
+            room.currentQuestion += 1;
+            room.correctAnswersGiven = 0;
             sendNextQuestion(roomId);
         }
+    });
+
+    socket.on("leaveGame", ({ roomId }) => {
+        console.log("leaveGame")
+        const room = rooms.get(roomId) || [];
+        if (!room) return;
+        room.players = room.players?.filter((p) => p.id !== socket.id);
+        rooms.set(roomId, room);
+        io.to(roomId).emit("leftPlayer", room.players);
     });
 
     socket.on("disconnect", () => {
