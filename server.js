@@ -19,7 +19,7 @@ function createDefaultRoom(settings) {
 
 io.on("connection", (socket) => {
 
-    socket.on("createRoom", ({ roomId, username, settings }) => {
+    socket.on("createRoom", ({ roomId, settings }) => {
         if (!rooms.has(roomId)) {
             rooms.set(roomId, createDefaultRoom(settings));
         }
@@ -38,7 +38,7 @@ io.on("connection", (socket) => {
         const newPlayer = { id: socket.id, name: username, score: 0 };
         room.players.push(newPlayer);
 
-        io.to(roomId).emit("roomPlayers", room.players);
+        io.to(roomId).emit("roomUpdate", room);
     });
 
     function shuffleArray(array) {
@@ -70,9 +70,12 @@ io.on("connection", (socket) => {
 
         if (room.questionTimer) clearTimeout(room.questionTimer);
         room.questionTimer = setTimeout(() => {
-            room.currentQuestion += 1;
-            sendNextQuestion(roomId);
-        }, 10000);
+            // WILL SEND CORRECT ANSWER BEFORE THE NEXT QUESTION
+            setTimeout(() => {
+                room.currentQuestion += 1;
+                sendNextQuestion(roomId);
+            }, 3000);
+        }, room.settings.time * 1000);
     };
 
     socket.on("startGame", async ({ roomId }) => {
@@ -131,13 +134,17 @@ io.on("connection", (socket) => {
     });
 
     socket.on("disconnect", () => {
-        console.log("disconnect")
         for (let [roomId, room] of rooms.entries()) {
-            room.players = room.players.filter((p) => p.id !== socket.id);
-            rooms.set(roomId, room);
-            io.to(roomId).emit("roomPlayers", room.players);
+            if (room.players.length === 0) {
+                rooms.delete(roomId);
+            } else {
+                room.players = room.players.filter((p) => p.id !== socket.id);
+                rooms.set(roomId, room);
+                io.to(roomId).emit("roomUpdate", room);
+            }
         }
     });
+
 });
 
 server.listen(4000, () => console.log("Server running on :4000"));
