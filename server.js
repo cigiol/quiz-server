@@ -23,7 +23,6 @@ io.on("connection", (socket) => {
         if (!rooms.has(roomId)) {
             rooms.set(roomId, createDefaultRoom(settings));
         }
-        // sadece oda yarat, join burada yok
         socket.emit("roomCreated", { roomId });
     });
 
@@ -78,11 +77,29 @@ io.on("connection", (socket) => {
         }, room.settings.time * 1000);
     };
 
-    socket.on("startGame", async ({ roomId }) => {
-        console.log(roomId, "roomId")
-        console.log(rooms, "rooms")
-        const room = rooms.get(roomId) || [];
-        console.log(room, "room");
+    socket.on("ready", ({ roomId }) => {
+        const room = rooms.get(roomId);
+        if (!room) return;
+
+        const player = room.players.find(p => p.id === socket.id);
+        if (!player) return;
+        player.isReady = true;
+
+        const readyCount = room.players.filter(p => p.isReady).length;
+        const majority = Math.ceil(room.players.length / 2);
+
+        io.to(roomId).emit("roomUpdate", room);
+
+        if (readyCount >= majority && !room.gameStarted) {
+            room.gameStarted = true;
+            startGame(roomId);
+        }
+    });
+
+    async function startGame(roomId) {
+        const room = rooms.get(roomId);
+        if (!room) return;
+        io.to(roomId).emit("startGame");
         const { rounds, difficulty, category } = room.settings;
 
         let url = `https://opentdb.com/api.php?type=multiple&encode=base64&amount=${rounds}&category=${category}&difficulty=${difficulty}`;
@@ -92,7 +109,7 @@ io.on("connection", (socket) => {
         room.question = data.results;
 
         sendNextQuestion(roomId);
-    });
+    }
 
     socket.on("answer", async ({ roomId, answer }) => {
         const room = rooms.get(roomId) || [];
